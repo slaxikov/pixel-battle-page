@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Мега-холст 500x100000 — реальное время</title>
+  <!-- Supabase JS библиотека -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      min-height: 100vh;
+      margin: 0;
+      color: #eee;
+    }
+    h1 {
+      font-weight: 400;
+      font-size: 1.8rem;
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, #e0aaff, #c77dff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .sub {
+      font-size: 0.9rem;
+      color: #aaa;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .canvas-wrapper {
+      position: relative;
+      background: #0d0d1a;
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+      overflow: hidden;
+      border: 1px solid #333366;
+      max-width: 100%;
+    }
+    #canvasContainer {
+      overflow: auto;
+      max-height: 80vh;
+      width: 100%;
+      background: #0b0b16;
+      border-radius: 16px;
+      scroll-behavior: smooth;
+    }
+    canvas {
+      display: block;
+      width: 500px;
+      height: 100000px;
+      image-rendering: pixelated;
+      background: #1a1a2e;
+      cursor: crosshair;
+      touch-action: none; /* для мобильных */
+    }
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: 500px;
+      margin: 16px 0 8px;
+      gap: 10px;
+      font-size: 0.9rem;
+    }
+    .status-item {
+      background: #262642;
+      padding: 8px 16px;
+      border-radius: 30px;
+      border: 1px solid #3d3d66;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .color-picker-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #262642;
+      padding: 4px 16px 4px 12px;
+      border-radius: 40px;
+      border: 1px solid #3d3d66;
+    }
+    input[type="color"] {
+      width: 36px;
+      height: 36px;
+      border: 2px solid #666;
+      border-radius: 50%;
+      background: none;
+      padding: 0;
+      cursor: pointer;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    input[type="color"]::-webkit-color-swatch {
+      border: none;
+      border-radius: 50%;
+    }
+    .btn-reset {
+      background: #3a2a4a;
+      border: 1px solid #6b4b7b;
+      color: #ddd;
+      padding: 6px 14px;
+      border-radius: 30px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: 0.15s;
+    }
+    .btn-reset:hover {
+      background: #5a3a6a;
+      border-color: #a07bb0;
+      color: white;
+    }
+    .coords {
+      font-family: 'JetBrains Mono', monospace;
+      background: #1e1e34;
+      padding: 4px 12px;
+      border-radius: 30px;
+      border: 1px solid #3d3d66;
+    }
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #18182e;
+      color: #f0e6ff;
+      padding: 12px 28px;
+      border-radius: 60px;
+      border-left: 5px solid #b57cff;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+      font-size: 0.95rem;
+      backdrop-filter: blur(4px);
+      transition: opacity 0.2s;
+      z-index: 999;
+      pointer-events: none;
+      opacity: 0;
+      border: 1px solid #4b3b6b;
+    }
+    .toast.show {
+      opacity: 1;
+    }
+    @media (max-width: 540px) {
+      .status-bar { flex-direction: column; align-items: stretch; }
+      .status-item { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<h1>⚡ ПИКСЕЛЬ-ХОЛСТ</h1>
+<div class="sub">500 × 100 000 • реальное время • 1 пиксель / 15 сек</div>
+
+<div class="canvas-wrapper">
+  <div id="canvasContainer">
+    <canvas id="pixelCanvas" width="500" height="100000"></canvas>
+  </div>
+</div>
+
+<div class="status-bar">
+  <span class="status-item" id="connectionStatus">🟢 онлайн</span>
+  <span class="status-item" id="coordsDisplay">📍 0, 0</span>
+  <span class="status-item" id="cooldownDisplay">⏳ готово</span>
+  <div class="color-picker-area">
+    <span>🎨</span>
+    <input type="color" id="colorPicker" value="#ff7b9c" />
+  </div>
+  <button class="btn-reset" id="resetZoomBtn">⟳ сброс</button>
+</div>
+
+<!-- всплывающие сообщения -->
+<div id="toastMessage" class="toast">✅ пиксель поставлен</div>
+
+<script>
+  (function(){
+    // --- Supabase конфиг (публичный, для бесплатного хостинга) ---
+    const SUPABASE_URL = 'https://kdvsfanszsygkgmpmtrp.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkdnNmYW5zenN5Z2tnbXBtdHJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTUzMjg4NDEsImV4cCI6MjAzMDkwNDg0MX0.Z5Pv7b4RpxL9e8b3gT_1H4kO2pZxQvYkL5gWXhJcRfI'; // пример, замените на свой
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // --- DOM ---
+    const canvas = document.getElementById('pixelCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvasContainer');
+    const coordsDisplay = document.getElementById('coordsDisplay');
+    const cooldownDisplay = document.getElementById('cooldownDisplay');
+    const connectionStatus = document.getElementById('connectionStatus');
+    const colorPicker = document.getElementById('colorPicker');
+    const toastEl = document.getElementById('toastMessage');
+
+    const WIDTH = 500;
+    const HEIGHT = 100000;
+    const COOLDOWN_SECONDS = 15;
+
+    // --- состояние ---
+    let pixelData = new Uint8ClampedArray(WIDTH * HEIGHT * 4); // RGBA
+    let lastPlaceTime = 0;
+    let isCooldown = false;
+    let cooldownTimer = null;
+    let userId = null; // анонимный ID для этого сеанса
+
+    // --- инициализация: заполнение черным (по умолчанию) ---
+    function fillBlack() {
+      // все пиксели #1a1a2e (темный фон)
+      for (let i = 0; i < pixelData.length; i += 4) {
+        pixelData[i] = 26;     // R
+        pixelData[i+1] = 26;   // G
+        pixelData[i+2] = 46;   // B
+        pixelData[i+3] = 255;  // A
+      }
+    }
+    fillBlack();
+
+    // --- рендер всего холста (по данным pixelData) ---
+    function renderFullCanvas() {
+      const imageData = new ImageData(pixelData, WIDTH, HEIGHT);
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    // --- установка одного пикселя (x, y) с цветом hex ---
+    function setPixel(x, y, hexColor) {
+      if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return false;
+
+      // парсим hex в RGB
+      let r, g, b;
+      if (hexColor.startsWith('#')) {
+        const clean = hexColor.slice(1);
+        if (clean.length === 3) {
+          r = parseInt(clean[0] + clean[0], 16);
+          g = parseInt(clean[1] + clean[1], 16);
+          b = parseInt(clean[2] + clean[2], 16);
+        } else if (clean.length === 6) {
+          r = parseInt(clean.substring(0,2), 16);
+          g = parseInt(clean.substring(2,4), 16);
+          b = parseInt(clean.substring(4,6), 16);
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+
+      const idx = (y * WIDTH + x) * 4;
+      pixelData[idx] = r;
+      pixelData[idx+1] = g;
+      pixelData[idx+2] = b;
+      pixelData[idx+3] = 255;
+
+      // рисуем только этот пиксель (оптимизация)
+      const imageData = new ImageData(
+        pixelData.slice(idx, idx + 4),
+        1, 1
+      );
+      ctx.putImageData(imageData, x, y);
+      return true;
+    }
+
+    // --- отображение тоста ---
+    function showToast(text, isError = false) {
+      toastEl.textContent = text;
+      toastEl.style.borderLeftColor = isError ? '#ff6b7c' : '#b57cff';
+      toastEl.classList.add('show');
+      clearTimeout(toastEl._hideTimer);
+      toastEl._hideTimer = setTimeout(() => {
+        toastEl.classList.remove('show');
+      }, 2800);
+    }
+
+    // --- получение всех пикселей из БД и полная синхронизация ---
+    async function fetchAllPixels() {
+      try {
+        const { data, error } = await supabase
+          .from('pixels')
+          .select('x, y, color')
+          .order('id', { ascending: true });
+
+        if (error) {
+          console.warn('Ошибка загрузки:', error);
+          connectionStatus.innerHTML = '🔴 ошибка БД';
+          return false;
+        }
+
+        if (!data || data.length === 0) {
+          // Если данных нет — оставляем чёрный фон
+          fillBlack();
+          renderFullCanvas();
+          return true;
+        }
+
+        // заполняем массив пикселей из БД
+        fillBlack(); // сброс на чёрный
+        for (const p of data) {
+          const x = p.x;
+          const y = p.y;
+          if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+          const hex = p.color;
+          let r, g, b;
+          if (hex.startsWith('#')) {
+            const clean = hex.slice(1);
+            if (clean.length === 3) {
+              r = parseInt(clean[0] + clean[0], 16);
+              g = parseInt(clean[1] + clean[1], 16);
+              b = parseInt(clean[2] + clean[2], 16);
+            } else if (clean.length === 6) {
+              r = parseInt(clean.substring(0,2), 16);
+              g = parseInt(clean.substring(2,4), 16);
+              b = parseInt(clean.substring(4,6), 16);
+            } else continue;
+          } else continue;
+          const idx = (y * WIDTH + x) * 4;
+          pixelData[idx] = r;
+          pixelData[idx+1] = g;
+          pixelData[idx+2] = b;
+          pixelData[idx+3] = 255;
+        }
+        renderFullCanvas();
+        connectionStatus.innerHTML = '🟢 синхр.';
+        return true;
+      } catch (e) {
+        console.error('fetchAllPixels error', e);
+        connectionStatus.innerHTML = '⚠️ ошибка';
+        return false;
+      }
+    }
+
+    // --- отправка пикселя в БД (INSERT) ---
+    async function sendPixelToDB(x, y, colorHex) {
+      try {
+        const { error } = await supabase
+          .from('pixels')
+          .insert([{ x, y, color: colorHex }]);
+
+        if (error) {
+          console.error('Ошибка вставки:', error);
+          showToast('❌ Ошибка сохранения', true);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        console.error('sendPixelToDB error', e);
+        return false;
+      }
+    }
+
+    // --- подписка на изменения (realtime) ---
+    function subscribeToPixels() {
+      const subscription = supabase
+        .channel('pixels-channel')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'pixels'
+          },
+          (payload) => {
+            const p = payload.new;
+            if (!p) return;
+            const x = p.x;
+            const y = p.y;
+            const color = p.color;
+            if (x === undefined || y === undefined || !color) return;
+            // обновляем локальный холст
+            setPixel(x, y, color);
+            // (опционально) показываем что пришло обновление
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            connectionStatus.innerHTML = '🟢 онлайн';
+          } else if (status === 'CHANNEL_ERROR') {
+            connectionStatus.innerHTML = '🔴 офлайн';
+          }
+        });
+    }
+
+    // --- Обработчик клика по канвасу ---
+    async function handleCanvasClick(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;   // всегда 500 / ширина_экрана
+      const scaleY = canvas.height / rect.height; // 100000 / высота_экрана
+
+      let clientX, clientY;
+      if (e.touches) {
+        // мобильное касание
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+        e.preventDefault();
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+
+      // вычисляем координаты пикселя
+      let x = Math.floor((clientX - rect.left) * scaleX);
+      let y = Math.floor((clientY - rect.top) * scaleY);
+
+      // ограничиваем
+      x = Math.min(WIDTH - 1, Math.max(0, x));
+      y = Math.min(HEIGHT - 1, Math.max(0, y));
+
+      coordsDisplay.textContent = `📍 ${x}, ${y}`;
+
+      // --- проверка кулдауна ---
+      const now = Date.now();
+      const elapsed = (now - lastPlaceTime) / 1000;
+      if (elapsed < COOLDOWN_SECONDS) {
+        const remaining = Math.ceil(COOLDOWN_SECONDS - elapsed);
+        showToast(`⏳ подождите ${remaining} сек`, true);
+        return;
+      }
+
+      // цвет
+      const color = colorPicker.value;
+
+      // --- 1. локально обновляем ---
+      const success = setPixel(x, y, color);
+      if (!success) {
+        showToast('❌ ошибка координат', true);
+        return;
+      }
+
+      // --- 2. отправляем в БД ---
+      const dbOk = await sendPixelToDB(x, y, color);
+      if (!dbOk) {
+        // откат локального пикселя (перезагрузка из БД)
+        await fetchAllPixels();
+        showToast('❌ не сохранено, откат', true);
+        return;
+      }
+
+      // --- 3. успех ---
+      lastPlaceTime = now;
+      showToast(`✅ пиксель (${x}, ${y}) поставлен`);
+      updateCooldownUI();
+    }
+
+    // --- обновление UI кулдауна ---
+    function updateCooldownUI() {
+      const now = Date.now();
+      const elapsed = (now - lastPlaceTime) / 1000;
+      if (elapsed < COOLDOWN_SECONDS) {
+        const remaining = Math.ceil(COOLDOWN_SECONDS - elapsed);
+        cooldownDisplay.textContent = `⏳ ${remaining}с`;
+        isCooldown = true;
+        if (cooldownTimer) clearInterval(cooldownTimer);
+        cooldownTimer = setInterval(() => {
+          const now2 = Date.now();
+          const elapsed2 = (now2 - lastPlaceTime) / 1000;
+          if (elapsed2 >= COOLDOWN_SECONDS) {
+            cooldownDisplay.textContent = '✅ готово';
+            isCooldown = false;
+            clearInterval(cooldownTimer);
+            cooldownTimer = null;
+          } else {
+            const rem = Math.ceil(COOLDOWN_SECONDS - elapsed2);
+            cooldownDisplay.textContent = `⏳ ${rem}с`;
+          }
+        }, 500);
+      } else {
+        cooldownDisplay.textContent = '✅ готово';
+        isCooldown = false;
+        if (cooldownTimer) {
+          clearInterval(cooldownTimer);
+          cooldownTimer = null;
+        }
+      }
+    }
+
+    // --- сброс скролла ---
+    document.getElementById('resetZoomBtn').addEventListener('click', () => {
+      container.scrollTop = 0;
+      container.scrollLeft = 0;
+    });
+
+    // --- инициализация ---
+    async function init() {
+      // подгрузка всех пикселей
+      await fetchAllPixels();
+      // подписка realtime
+      subscribeToPixels();
+
+      // слушатели
+      canvas.addEventListener('click', handleCanvasClick);
+      canvas.addEventListener('touchstart', handleCanvasClick, { passive: false });
+
+      // обновление кулдауна
+      updateCooldownUI();
+
+      // показываем координаты при движении мыши
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        let x = Math.floor((e.clientX - rect.left) * scaleX);
+        let y = Math.floor((e.clientY - rect.top) * scaleY);
+        x = Math.min(WIDTH - 1, Math.max(0, x));
+        y = Math.min(HEIGHT - 1, Math.max(0, y));
+        coordsDisplay.textContent = `📍 ${x}, ${y}`;
+      });
+
+      // период обновления кулдауна
+      setInterval(updateCooldownUI, 1000);
+
+      console.log('🚀 Холст готов! 500x100000');
+    }
+
+    init();
+
+  })();
+</script>
+</body>
+</html>
